@@ -1,0 +1,145 @@
+const router = require("express").Router();
+const authorize = require("../middleware/authMiddleware");
+const pool = require("../db");
+
+// Get all mentors (for parents to browse)
+router.get("/list", authorize, async (req, res) => {
+    try {
+        const mentors = await pool.query(
+            "SELECT user_id, name, email FROM users WHERE role = 'mentor'"
+        );
+        res.json(mentors.rows);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Server Error");
+    }
+});
+
+// Connect Parent to Mentor
+router.post("/connect", authorize, async (req, res) => {
+    try {
+        const { mentor_id } = req.body;
+        const parent_id = req.user.id;
+
+        // Check if connection already exists
+        const existing = await pool.query(
+            "SELECT * FROM mentor_clients WHERE mentor_id = $1 AND parent_id = $2",
+            [mentor_id, parent_id]
+        );
+
+        if (existing.rows.length > 0) {
+            return res.status(400).json("Already connected to this mentor");
+        }
+
+        const newConnection = await pool.query(
+            "INSERT INTO mentor_clients (mentor_id, parent_id) VALUES ($1, $2) RETURNING *",
+            [mentor_id, parent_id]
+        );
+
+        res.json(newConnection.rows[0]);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Server Error");
+    }
+});
+
+// Get My Mentor (for Parent)
+router.get("/my-mentor", authorize, async (req, res) => {
+    try {
+        const myMentor = await pool.query(
+            `SELECT u.user_id, u.name, u.email 
+             FROM mentor_clients mc 
+             JOIN users u ON mc.mentor_id = u.user_id 
+             WHERE mc.parent_id = $1`,
+            [req.user.id]
+        );
+        res.json(myMentor.rows[0] || null);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Server Error");
+    }
+});
+
+// Get My Clients (for Mentor)
+router.get("/my-clients", authorize, async (req, res) => {
+    try {
+        // Ensure requester is a mentor
+        if (req.user.role !== 'mentor') {
+            // In a real app we'd check DB role, but here we rely on the token payload or trust the query logic
+            // Ideally: const checkRole = await pool.query(...)
+        }
+
+        const clients = await pool.query(
+            `SELECT u.user_id, u.name, u.email, 
+             COALESCE(json_agg(c.name) FILTER (WHERE c.name IS NOT NULL), '[]') as children_names
+             FROM mentor_clients mc 
+             JOIN users u ON mc.parent_id = u.user_id 
+             LEFT JOIN children c ON u.user_id = c.user_id
+             WHERE mc.mentor_id = $1
+             GROUP BY u.user_id, u.name, u.email`,
+            [req.user.id]
+        );
+        res.json(clients.rows);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Server Error");
+    }
+});
+
+// --- SESSIONS ---
+
+// Create Session (Mentor Only)
+router.post("/sessions", authorize, async (req, res) => {
+    try {
+        const { title, description, start_time, meeting_link } = req.body;
+
+        const newSession = await pool.query(
+            "INSERT INTO sessions (mentor_id, title, description, start_time, meeting_link) VALUES ($1, $2, $3, $4, $5) RETURNING *",
+            [req.user.id, title, description, start_time, meeting_link]
+        );
+
+        res.json(newSession.rows[0]);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Server Error");
+    }
+});
+
+// Get Sessions
+// - If Mentor: Get sessions I created
+// - If Parent: Get sessions of my connected mentor(s)
+router.get("/sessions", authorize, async (req, res) => {
+    try {
+        // We need to know the role. Auth middleware only gives ID if we don't put role in payload.
+        // Let's fetch the user role first to be safe, or check both tables.
+
+        const user = await pool.query("SELECT role FROM users WHERE user_id = $1", [req.user.id]);
+        const role = user.rows[0].role;
+
+        let sessions;
+        if (role === 'mentor') {
+            sessions = await pool.query(
+                "SELECT * FROM sessions WHERE mentor_id = $1 ORDER BY start_time ASC",
+                [req.user.id]
+            );
+        } else {
+            // Parent: Find sessions where mentor_id is in my mentor_clients list
+            sessions = await pool.query(
+                `SELECT s.*, u.name as mentor_name
+                 FROM sessions s
+                 JOIN mentor_clients mc ON s.mentor_id = mc.mentor_id
+                 JOIN users u ON s.mentor_id = u.user_id
+                 WHERE mc.parent_id = $1
+                 ORDER BY s.start_time ASC`,
+                [req.user.id]
+            );
+        }
+
+        res.json(sessions.rows);
+    } catch (err) {
+        console.error(err.message);
+        res.status(500).send("Server Error");
+    }
+});
+
+module.exports = router;

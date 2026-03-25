@@ -1,4 +1,5 @@
 const jwt = require("jsonwebtoken");
+const pool = require("../db");
 require("dotenv").config();
 
 module.exports = async (req, res, next) => {
@@ -11,7 +12,22 @@ module.exports = async (req, res, next) => {
 
         const payload = jwt.verify(jwtToken, process.env.JWT_SECRET);
 
-        req.user = payload.user;
+        req.user = payload.user || { id: payload.user_id };
+
+        if (!req.user?.role) {
+            const user = await pool.query(
+                "SELECT role, name, email FROM users WHERE user_id = $1",
+                [req.user.id]
+            );
+            if (user.rows[0]) {
+                req.user = {
+                    ...req.user,
+                    role: user.rows[0].role,
+                    name: user.rows[0].name,
+                    email: user.rows[0].email
+                };
+            }
+        }
         next();
     } catch (err) {
         console.error(err.message);

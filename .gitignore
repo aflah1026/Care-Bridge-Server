@@ -36,6 +36,11 @@ yarn-error.log*
 # vercel
 .vercel
 
+# OS System Files
+.DS_Store
+Thumbs.db
+
+docker-compose.yml
 # typescript
 *.tsbuildinfo
 next-env.d.ts

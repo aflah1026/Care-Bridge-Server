@@ -32,10 +32,10 @@ router.get("/posts", authorize, async (req, res) => {
 // Create Post
 router.post("/posts", authorize, async (req, res) => {
     try {
-        const { content, category } = req.body;
+        const { title, content, category } = req.body;
         const newPost = await pool.query(
-            "INSERT INTO posts (author_id, content, category) VALUES ($1, $2, $3) RETURNING *",
-            [req.user.id, content, category]
+            "INSERT INTO posts (author_id, title, content, category) VALUES ($1, $2, $3, $4) RETURNING *",
+            [req.user.id, title || null, content, category]
         );
         res.json(newPost.rows[0]);
     } catch (err) {

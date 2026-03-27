@@ -4,7 +4,7 @@ const jwtGenerator = require("../utils/jwtGenerator");
 
 exports.register = async (req, res) => {
     try {
-        const { name, email, password, role } = req.body;
+        const { name, email, password, role, specialty, credentials, bio } = req.body;
 
         const user = await pool.query("SELECT * FROM users WHERE email = $1", [
             email
@@ -19,11 +19,11 @@ exports.register = async (req, res) => {
         const bcryptPassword = await bcrypt.hash(password, salt);
 
         const newUser = await pool.query(
-            "INSERT INTO users (name, email, password_hash, role) VALUES ($1, $2, $3, $4) RETURNING *",
-            [name, email, bcryptPassword, role || 'parent']
+            "INSERT INTO users (name, email, password_hash, role, specialty, credentials, bio) VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *",
+            [name, email, bcryptPassword, role || 'parent', specialty || null, credentials || null, bio || null]
         );
 
-        const token = jwtGenerator(newUser.rows[0].user_id);
+        const token = jwtGenerator(newUser.rows[0]);
 
         res.json({ token, user: newUser.rows[0] });
     } catch (err) {
@@ -53,7 +53,7 @@ exports.login = async (req, res) => {
             return res.status(401).json("Password or Email is incorrect");
         }
 
-        const token = jwtGenerator(user.rows[0].user_id);
+        const token = jwtGenerator(user.rows[0]);
 
         res.json({ token, user: user.rows[0] });
     } catch (err) {
